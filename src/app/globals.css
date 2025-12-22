@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f0f0f0;
+  --foreground: #171717;
+  --gold: #D4AF37;
+  --soft-white: #FCFAFA;
+  --dark-gray: #1A1A1A;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-gold: var(--gold);
+  --color-soft-white: var(--soft-white);
+  --color-dark-gray: var(--dark-gray);
+  
+  --font-serif: var(--font-playfair);
+  --font-sans: var(--font-plus-jakarta);
+}
+
+@layer utilities {
+  .serif {
+    font-family: var(--font-playfair);
+  }
+}
+
+/* Custom Animations */
+@keyframes pulse-custom {
+  0% { opacity: 0.6; }
+  50% { opacity: 0.3; }
+  100% { opacity: 0.6; }
+}
+
+.animate-pulse-custom {
+  animation: pulse-custom 2s infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.5s ease-out forwards;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-plus-jakarta), sans-serif;
+  overflow-x: hidden;
+}
