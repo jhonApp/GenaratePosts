@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useCarousel } from "../hooks/useCarousel";
+
 import { CarouselCard as CarouselCardType } from "../types";
 import { CarouselCard } from "./CarouselCard";
 
