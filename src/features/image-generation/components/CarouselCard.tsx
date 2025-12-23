@@ -1,5 +1,6 @@
 export {}; // Needed for build if file is empty
 import React from "react";
+import Image from "next/image";
 import { CarouselCard as CarouselCardType } from "../types";
 
 interface CarouselCardProps {
@@ -34,10 +35,12 @@ export const CarouselCard: React.FC<CarouselCardProps> = ({
             </span>
         )}
         {imageUrl && (
-          <img
+          <Image
             src={`data:image/png;base64,${imageUrl}`}
             alt={data.title}
-            className="w-full h-full object-cover animate-fade-in"
+            fill
+            className="object-cover animate-fade-in"
+            unoptimized
           />
         )}
       </div>
