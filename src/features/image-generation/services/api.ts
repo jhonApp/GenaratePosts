@@ -1,36 +1,22 @@
-import { CarouselCard, GeminiResponse, ImagenResponse } from "../types";
+import { CarouselCard } from "../types";
 
-// START CONFIGURATION
-// IMPORTANTE: Use a nova chave que você vai gerar, não a que vazou.
-export const GEMINI_API_KEY = "AIzaSyCqO59eyy2Il-E74wY4teb4UpHIjG9UcmI"; 
-// END CONFIGURATION
+// Removed hardcoded GEMINI_API_KEY. All keys are now server-side.
 
 export const generateImageService = async (prompt: string): Promise<string> => {
   try {
-    // CORREÇÃO: O nome correto do modelo na v1beta geralmente é 'imagen-3.0-generate-001'
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          instances: [{ prompt }],
-          parameters: { sampleCount: 1 },
-        }),
-      }
-    );
+    const response = await fetch("/api/generate-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Imagen API Error (${response.status}):`, errorText);
-      throw new Error(`Falha na geração de imagem: ${response.status} - ${errorText}`);
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Erro ao gerar imagem: ${response.status}`);
     }
 
-    const result: ImagenResponse = await response.json();
-    if (result.predictions && result.predictions.length > 0) {
-      return result.predictions[0].bytesBase64Encoded;
-    }
-    throw new Error("Nenhuma imagem retornada");
+    const result = await response.json();
+    return result.bytesBase64Encoded;
   } catch (error) {
     console.error("Erro ao gerar imagem:", error);
     throw error;
@@ -50,7 +36,7 @@ export const generateSmartCaptionService = async (cards: CarouselCard[]): Promis
   - Formate com quebras de linha para ficar fácil de ler.
   - Não use hashtags no meio do texto, coloque um bloco de 5 hashtags relevantes no final.`;
 
-  return callGeminiFlash(prompt);
+  return callInternalTextApi(prompt);
 };
 
 export const getStylingTipsService = async (card: CarouselCard): Promise<string> => {
@@ -60,29 +46,27 @@ export const getStylingTipsService = async (card: CarouselCard): Promise<string>
   Por favor, forneça 3 dicas práticas e curtas (máximo 1 frase cada) de como usar essa tendência específica na festa de Ano Novo.
   Seja direta e sofisticada. Use bullet points.`;
 
-  return callGeminiFlash(prompt);
+  return callInternalTextApi(prompt);
 };
 
-// Helper function to call Gemini Flash
-const callGeminiFlash = async (promptText: string): Promise<string> => {
+// Helper function to call internal text API
+const callInternalTextApi = async (prompt: string): Promise<string> => {
   try {
-    // CORREÇÃO: 'gemini-2.5' não existe. Use 'gemini-1.5-flash' (estável) ou 'gemini-2.0-flash-exp' (experimental).
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] }),
-      }
-    );
+    const response = await fetch("/api/generate-text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
 
-    const data: GeminiResponse = await response.json();
-    if (data.candidates && data.candidates.length > 0) {
-      return data.candidates[0].content.parts[0].text;
+    if (!response.ok) {
+      console.error("Erro na API de texto:", response.status);
+      return "Erro ao consultar a IA.";
     }
-    return "Não foi possível gerar a resposta.";
+
+    const data = await response.json();
+    return data.text || "Não foi possível gerar a resposta.";
   } catch (error) {
-    console.error("Erro no Gemini Flash:", error);
+    console.error("Erro ao chamar API interna:", error);
     return "Erro ao consultar a IA.";
   }
 };
