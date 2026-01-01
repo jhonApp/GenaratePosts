@@ -9,18 +9,26 @@ export const maxDuration = 60;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function POST(request: Request) {
+  console.log("🔥 [DEBUG] Worker route /api/queue/process hit!");
   try {
-    const jobs: ImageJob[] = await db.$queryRaw`
-      SELECT * FROM "ImageJob"
-      WHERE status = 'PENDING'::"JobStatus"
-      ORDER BY "createdAt" ASC
-      LIMIT 1
-      FOR UPDATE SKIP LOCKED
-    `;
+    let jobs: ImageJob[] = [];
+    try {
+      jobs = await db.$queryRaw`
+        SELECT * FROM "ImageJob"
+        WHERE status = 'PENDING'::"JobStatus"
+        ORDER BY "createdAt" ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      `;
+    } catch (dbError) {
+      console.error("❌ [DEBUG] Database Query Failed:", dbError);
+      throw new Error("Database connection failed");
+    }
 
     const job = jobs[0];
 
     if (!job) {
+      console.log("ℹ️ [DEBUG] No PENDING jobs found.");
       return NextResponse.json({ message: "No pending jobs" });
     }
 

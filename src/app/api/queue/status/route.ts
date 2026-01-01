@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
+// Force dynamic rendering to prevent caching of status checks
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { auth } from "@clerk/nextjs/server";
 
 export async function POST(request: Request) {
