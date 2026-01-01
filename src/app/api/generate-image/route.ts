@@ -2,6 +2,7 @@ import { GoogleAuth } from "google-auth-library";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
+  console.log("🔥 [DEBUG] Rota /process foi chamada!"); // <--- ADICIONE ISSO
   try {
     const projectId = process.env.GCP_PROJECT_ID;
     const location = process.env.GCP_LOCATION || "us-central1";

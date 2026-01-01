@@ -46,6 +46,9 @@ export function useImageJobPoller(initialJobIds: string[]) {
 
           if (allDone) {
             setIsPolling(false);
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
           }
         }
       } catch (error) {

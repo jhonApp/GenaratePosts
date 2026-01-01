@@ -2,6 +2,9 @@ import { CarouselCard } from "../types";
 
 // Removed hardcoded GEMINI_API_KEY. All keys are now server-side.
 
+/**
+ * @deprecated Use createGenerationJobs instead for async queue.
+ */
 export const generateImageService = async (prompt: string): Promise<string> => {
   try {
     const response = await fetch("/api/generate-image", {
@@ -19,6 +22,31 @@ export const generateImageService = async (prompt: string): Promise<string> => {
     return result.bytesBase64Encoded;
   } catch (error) {
     console.error("Erro ao gerar imagem:", error);
+    throw error;
+  }
+};
+
+interface CreateJobsResponse {
+  jobIds: string[];
+}
+
+export const createGenerationJobs = async (prompts: string[]): Promise<string[]> => {
+  try {
+    const response = await fetch("/api/queue/create-job", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompts }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Erro ao criar jobs: ${response.status}`);
+    }
+
+    const data: CreateJobsResponse = await response.json();
+    return data.jobIds;
+  } catch (error) {
+    console.error("Erro ao criar fila de jobs:", error);
     throw error;
   }
 };
@@ -69,4 +97,24 @@ const callInternalTextApi = async (prompt: string): Promise<string> => {
     console.error("Erro ao chamar API interna:", error);
     return "Erro ao consultar a IA.";
   }
+};
+
+export const generateCarouselPlanService = async (topic: string): Promise<CarouselCard[]> => {
+    try {
+        const response = await fetch("/api/gemini/plan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ topic })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || "Failed to generate plan");
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Error generating plan:", error);
+        throw error;
+    }
 };

@@ -5,9 +5,11 @@ import { JobStatus, ImageJob } from "@prisma/client";
 
 export const maxDuration = 60;
 
+// Helper for delay
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function POST(request: Request) {
   try {
-
     const jobs: ImageJob[] = await db.$queryRaw`
       SELECT * FROM "ImageJob"
       WHERE status = 'PENDING'::"JobStatus"
@@ -25,8 +27,7 @@ export async function POST(request: Request) {
     const start = Date.now();
     console.log(`[Worker] Picking up job ${job.id}`);
 
-    // Update to PROCESSING immediately (though the lock technically holds it, 
-    // updating status gives visibility to the UI)
+    // Update to PROCESSING
     await db.imageJob.update({
       where: { id: job.id },
       data: { status: "PROCESSING" },
@@ -46,24 +47,41 @@ export async function POST(request: Request) {
       });
       console.log(`[Worker] Job ${job.id} completed in ${Date.now() - start}ms`);
 
+      // THROTTLING: Wait 12 seconds to respect Vertex AI Quota
+      console.log("[Worker] Throttling for 12s...");
+      await sleep(12000);
+
     } catch (error: any) {
       console.error(`[Worker] Job ${job.id} failed:`, error);
-      
-      // 3. Save Failure
-      await db.imageJob.update({
-        where: { id: job.id },
-        data: {
-          status: "FAILED",
-          errorMessage: error.message || "Unknown error",
-        },
-      });
+
+      const errorMessage = error.message || JSON.stringify(error);
+      const isRateLimit = errorMessage.includes("429") || 
+                          errorMessage.includes("Quota") || 
+                          errorMessage.includes("RESOURCE_EXHAUSTED");
+
+      if (isRateLimit) {
+        // SMART RETRY: Set back to PENDING and wait
+        console.warn("[Worker] Rate Limit hit. Re-queuing job and waiting 20s...");
+        await db.imageJob.update({
+          where: { id: job.id },
+          data: { status: "PENDING" }, // Send back to queue
+        });
+        await sleep(20000);
+      } else {
+        // PERMANENT FAILURE
+        await db.imageJob.update({
+          where: { id: job.id },
+          data: {
+            status: "FAILED",
+            errorMessage: errorMessage || "Unknown error",
+          },
+        });
+      }
     }
 
     // 4. Recursive Call to process next item
-    // We call ourselves again to drain the queue
-    const protocol = request.headers.get("x-forwarded-proto") || "http";
-    const host = request.headers.get("host");
-    const workerUrl = `${protocol}://${host}/api/queue/process`;
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const workerUrl = `${baseUrl}/api/queue/process`;
 
     // Fire-and-forget next call
     fetch(workerUrl, { method: "POST" }).catch((e) =>
