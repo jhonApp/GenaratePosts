@@ -6,8 +6,8 @@ import { CarouselCard as CarouselCardType } from "../../types";
 // Mock next/image
 jest.mock("next/image", () => ({
   __esModule: true,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    default: (props: any) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  default: ({ fill, unoptimized, ...props }: any) => {
     // eslint-disable-next-line @next/next/no-img-element
     return <img {...props} alt={props.alt} />;
   },
@@ -69,7 +69,7 @@ describe("CarouselCard", () => {
         index={0}
         total={3}
         loading={false}
-        imageUrl="base64string"
+        imageUrl="data:image/png;base64,base64string"
       />
     );
 
