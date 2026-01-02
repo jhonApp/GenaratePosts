@@ -11,9 +11,9 @@ describe("API Services", () => {
 
   describe("generateImageService", () => {
     it("should return base64 string on success", async () => {
-      const mockResponse = {
-        predictions: [{ bytesBase64Encoded: "base64imageString" }],
-      };
+      // API now returns { bytesBase64Encoded: ... }
+      const mockResponse = { bytesBase64Encoded: "base64imageString" };
+      
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         json: async () => mockResponse,
@@ -21,25 +21,30 @@ describe("API Services", () => {
 
       const result = await generateImageService("test prompt");
       expect(result).toBe("base64imageString");
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      
+      // Verify correct endpoint was called
+      expect(global.fetch).toHaveBeenCalledWith("/api/generate-image", expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ prompt: "test prompt" })
+      }));
     });
 
-    it("should throw error when API fails", async () => {
+    it("should throw error when internal API fails", async () => {
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: false,
-        status: 400,
-        text: async () => "Bad Request",
+        status: 500,
+        json: async () => ({ error: "Internal Server Error" }),
       });
 
-      await expect(generateImageService("test prompt")).rejects.toThrow("Falha na geração de imagem: 400 - Bad Request");
+      await expect(generateImageService("test prompt")).rejects.toThrow("Internal Server Error");
     });
   });
 
   describe("generateSmartCaptionService", () => {
     it("should return caption text on success", async () => {
-      const mockResponse = {
-        candidates: [{ content: { parts: [{ text: "Generated Caption" }] } }],
-      };
+      // API now returns { text: ... }
+      const mockResponse = { text: "Generated Caption" };
+      
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         json: async () => mockResponse,
@@ -48,19 +53,16 @@ describe("API Services", () => {
       const cards: CarouselCard[] = [{ title: "Test", prompt: "test" }];
       const result = await generateSmartCaptionService(cards);
       expect(result).toBe("Generated Caption");
+      
+      // Verify correct endpoint
+      expect(global.fetch).toHaveBeenCalledWith("/api/generate-text", expect.anything());
     });
 
-    it("should handle API failure gracefully", async () => {
+    it("should handle internal API failure gracefully", async () => {
         (global.fetch as jest.Mock).mockResolvedValue({
             ok: false,
+            status: 500
         });
-        
-        // The service mocks catch block returns a string instead of throwing
-        // But in the code it says: console.error("Erro no Gemini Flash:", error); return "Erro ao consultar a IA."
-        // Wait, if fetch fails (rejects), it catches. If simple !ok and we don't check, .json() might fail.
-        
-        // Let's force a fetch rejection
-        (global.fetch as jest.Mock).mockRejectedValue(new Error("Network Error"));
         
         const cards: CarouselCard[] = [{ title: "Test", prompt: "test" }];
         const result = await generateSmartCaptionService(cards);
@@ -70,9 +72,8 @@ describe("API Services", () => {
 
   describe("getStylingTipsService", () => {
      it("should return tips text on success", async () => {
-      const mockResponse = {
-        candidates: [{ content: { parts: [{ text: "Tip 1" }] } }],
-      };
+      const mockResponse = { text: "Tip 1" };
+      
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         json: async () => mockResponse,

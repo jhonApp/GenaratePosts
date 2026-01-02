@@ -36,7 +36,7 @@ export const CarouselCard: React.FC<CarouselCardProps> = ({
         )}
         {imageUrl && (
           <Image
-            src={`data:image/png;base64,${imageUrl}`}
+            src={`${imageUrl}`}
             alt={data.title}
             fill
             className="object-cover animate-fade-in"

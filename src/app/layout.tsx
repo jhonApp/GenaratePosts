@@ -17,19 +17,23 @@ export const metadata: Metadata = {
   description: "Visualize como suas tendências de Réveillon 2025 ficarão no feed.",
 };
 
+import { ClerkProvider } from "@clerk/nextjs";
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-br">
-      <body
-        className={`${playfair.variable} ${plusJakarta.variable} antialiased font-sans bg-gray-100 min-h-screen`}
-      >
-        {children}
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="pt-br">
+        <body
+          className={`${playfair.variable} ${plusJakarta.variable} antialiased font-sans bg-gray-100 min-h-screen`}
+        >
+          {children}
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
 
