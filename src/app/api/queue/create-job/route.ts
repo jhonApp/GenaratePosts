@@ -1,6 +1,10 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { docClient } from "@/lib/dynamodb";
+import { sqsClient } from "@/lib/sqs";
+import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
+import { randomUUID } from "crypto";
 
 export async function POST(request: Request) {
   try {
@@ -19,65 +23,96 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Process each prompt in PARALLEL (No Transaction)
-    // Filter out empty prompts first
-    const validPrompts = prompts.filter((p: any) => typeof p === 'string' && p.trim().length > 0);
+    const validPrompts = prompts.filter(
+      (p: any) => typeof p === "string" && p.trim().length > 0
+    );
 
     if (validPrompts.length === 0) {
-        return NextResponse.json({ error: "No valid prompts to process" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No valid prompts to process" },
+        { status: 400 }
+      );
     }
 
     const jobIds = await Promise.all(
       validPrompts.map(async (prompt: string) => {
         const normalizedPrompt = prompt.trim();
+        const jobId = randomUUID();
 
-        // Check for existing COMPLETED job with this prompt
-        // Note: Caching can be global (any user) OR per-user. 
-        // For general image generation, global caching is better for efficiency. 
-        // But let's create the new record linked to THIS userId.
-        const existingJob = await db.imageJob.findFirst({
-          where: {
-            prompt: normalizedPrompt,
-            status: "COMPLETED",
-            imageUrl: { not: null },
-          },
-          orderBy: { createdAt: "desc" }, // Get the most recent one
-        });
-
-        if (existingJob) {
-          // CACHE HIT: Create a new job record for this user
-          const cacheHitJob = await db.imageJob.create({
-            data: {
-              prompt: normalizedPrompt,
-              status: "COMPLETED",
-              imageUrl: existingJob.imageUrl,
-              userId: userId, // Link to authenticated user
-              errorMessage: "Served from cache",
+        // 1. Check for existing COMPLETED job (Cache Hit)
+        // Requires GSI: PromptIndex (Partition Key: prompt)
+        try {
+          const queryCmd = new QueryCommand({
+            TableName: "ImageJobs", // Assumed Table Name
+            IndexName: "PromptIndex",
+            KeyConditionExpression: "#prompt = :prompt",
+            FilterExpression: "#status = :status AND attribute_exists(imageUrl)",
+            ExpressionAttributeNames: {
+              "#prompt": "prompt",
+              "#status": "status",
             },
-          });
-          return cacheHitJob.id;
-        } else {
-          // CACHE MISS: Create PENDING job
-          const newJob = await db.imageJob.create({
-            data: {
-              prompt: normalizedPrompt,
-              status: "PENDING",
-              userId: userId, // Link to authenticated user
+            ExpressionAttributeValues: {
+              ":prompt": normalizedPrompt,
+              ":status": "COMPLETED",
             },
+            Limit: 1,
+            ScanIndexForward: false, // Descending? No timestamp in sort key of GSI usually, but if added...
+            // GSI Sort Key: createdAt (if available) to get latest
           });
-          return newJob.id;
+          
+          const existing = await docClient.send(queryCmd);
+          
+          if (existing.Items && existing.Items.length > 0) {
+             const cachedJob = existing.Items[0];
+             // Create a new record relying on cached data
+             const newJobItem = {
+                id: jobId,
+                userId: userId,
+                prompt: normalizedPrompt,
+                status: "COMPLETED",
+                imageUrl: cachedJob.imageUrl,
+                errorMessage: "Served from cache",
+                createdAt: new Date().toISOString(),
+             };
+             
+             await docClient.send(new PutCommand({
+                TableName: "ImageJobs",
+                Item: newJobItem,
+             }));
+             return jobId;
+          }
+        } catch (err) {
+            console.error("Cache lookup failed (might be missing GSI), proceeding to create new job:", err);
+            // Fallback to creating new job if query fails
         }
+
+        // 2. Create PENDING Job
+        const item = {
+          id: jobId,
+          userId: userId,
+          prompt: normalizedPrompt,
+          status: "PENDING",
+          createdAt: new Date().toISOString(),
+        };
+
+        await docClient.send(
+          new PutCommand({
+            TableName: "ImageJobs",
+            Item: item,
+          })
+        );
+
+        // 3. Send to SQS
+        const queueUrl = process.env.AWS_SQS_QUEUE_URL!;
+        await sqsClient.send(
+          new SendMessageCommand({
+            QueueUrl: queueUrl,
+            MessageBody: JSON.stringify({ jobId, prompt: normalizedPrompt, userId }),
+          })
+        );
+
+        return jobId;
       })
-    );
-
-    // 2. Trigger worker (Fire-and-forget)
-    // We trigger unconditionally. The worker effectively handles "nothing to do" or "already processing"
-    const protocol = request.headers.get("x-forwarded-proto") || "http";
-    const host = request.headers.get("host");
-    const workerUrl = `${protocol}://${host}/api/queue/process`;
-
-    fetch(workerUrl, { method: "POST" }).catch((err) =>
-      console.error("Failed to trigger worker:", err)
     );
 
     return NextResponse.json({ jobIds }, { status: 201 });
