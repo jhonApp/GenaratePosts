@@ -7,21 +7,18 @@ import { useCarousel, initialCardData } from "../hooks/useCarousel";
 // import { StyleConsultant } from "./StyleConsultant";
 // import { CaptionGenerator } from "./CaptionGenerator";
 import {
-  generateImageService, // Deprecated but kept for compatibility references if needed
   createGenerationJobs,
-  generateSmartCaptionService,
   getStylingTipsService,
   generateCarouselPlanService,
 } from "../services/api";
 import { CarouselCard } from "../types";
 import { useImageJobPoller } from "@/hooks/useImageJobPoller";
-import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
 
 export const FeatureContainer: React.FC = () => {
   // States
   const [cards, setCards] = useState<CarouselCard[]>(initialCardData);
   
-  const { currentSlide, nextSlide, prevSlide, goToSlide } = useCarousel(
+  const { currentSlide, nextSlide, prevSlide } = useCarousel(
     cards.length
   );
   const [topic, setTopic] = useState("");
@@ -38,10 +35,7 @@ export const FeatureContainer: React.FC = () => {
   const { jobs, isPolling } = useImageJobPoller(activeJobIds);
   const [cardJobMapping, setCardJobMapping] = useState<Record<number, string>>({}); // Card Index -> Job ID
 
-  const [caption, setCaption] = useState(
-    `O look da virada é sobre celebrar quem você quer ser no próximo ano! ✨\n\nPara 2025, as tendências trazem um mix de conforto, brilho e muita personalidade. Do linho fresquinho ao brilho dos metalizados, o importante é escolher algo que te deixe segura e radiante.`
-  );
-  const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
+
 
   const [stylingTips, setStylingTips] = useState<string | undefined>(undefined);
   const [isConsulting, setIsConsulting] = useState(false);
@@ -208,18 +202,7 @@ export const FeatureContainer: React.FC = () => {
     }
   };
 
-  const handleGenerateCaption = async () => {
-    setIsGeneratingCaption(true);
-    try {
-      const newCaption = await generateSmartCaptionService(cards);
-      setCaption(newCaption);
-    } catch (error) {
-      console.error(error);
-      // Fallback or alert could go here
-    } finally {
-      setIsGeneratingCaption(false);
-    }
-  };
+
 
   const handleConsultStylist = async () => {
     setIsConsulting(true);
@@ -291,6 +274,7 @@ export const FeatureContainer: React.FC = () => {
                   
                   {/* Image or Placeholder */}
                   {imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={imageUrl} // Start with formatted, but it's already set in state
                       alt={card.title}

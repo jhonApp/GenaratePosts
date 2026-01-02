@@ -17,6 +17,7 @@ export function useImageJobPoller(initialJobIds: string[]) {
   // Initialize jobs state when IDs change
   useEffect(() => {
     if (initialJobIds.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setJobs(initialJobIds.map(id => ({ id, status: "PENDING" })));
       setIsPolling(true);
     }

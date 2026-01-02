@@ -57,10 +57,11 @@ export async function POST(request: Request) {
     }
 
     throw new Error("No image returned from Vertex AI");
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Image Generation Error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Failed to generate image";
     return NextResponse.json(
-      { error: error.message || "Failed to generate image" },
+      { error: errorMessage },
       { status: 500 }
     );
   }

@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     }
 
     const validPrompts = prompts.filter(
-      (p: any) => typeof p === "string" && p.trim().length > 0
+      (p: unknown) => typeof p === "string" && p.trim().length > 0
     );
 
     if (validPrompts.length === 0) {
@@ -116,7 +116,7 @@ export async function POST(request: Request) {
     );
 
     return NextResponse.json({ jobIds }, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Create Job Error:", error);
     return NextResponse.json(
       { error: "Failed to create jobs" },

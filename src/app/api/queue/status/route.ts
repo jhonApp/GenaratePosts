@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     // The previous implementation returned what was found.
 
     return NextResponse.json({ jobs });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Fetch Job Status Error:", error);
     return NextResponse.json(
       { error: "Failed to fetch job statuses" },
