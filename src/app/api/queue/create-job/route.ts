@@ -4,7 +4,7 @@ import { docClient } from "@/lib/dynamodb";
 import { sqsClient } from "@/lib/sqs";
 import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 
 export async function POST(request: Request) {
   try {
@@ -36,39 +36,61 @@ export async function POST(request: Request) {
 
     const jobIds = await Promise.all(
       validPrompts.map(async (prompt: string) => {
+        // 1. Normalization & Fingerprint
         const normalizedPrompt = prompt.trim();
+        // Create MD5 hash of the normalized prompt (case-insensitive for better hit rate)
+        const promptHash = createHash("md5")
+          .update(normalizedPrompt.toLowerCase())
+          .digest("hex");
+          
         const jobId = randomUUID();
 
-        // 1. Check for existing COMPLETED job (Cache Hit)
-        // Requires GSI: PromptIndex (Partition Key: prompt)
+        // 2. Exact Semantic Cache Check
         try {
           const queryCmd = new QueryCommand({
-            TableName: "ImageJobs", // Assumed Table Name
-            IndexName: "PromptIndex",
-            KeyConditionExpression: "#prompt = :prompt",
+            TableName: "ImageJobs",
+            IndexName: "PromptHashIndex",
+            KeyConditionExpression: "promptHash = :hash",
             FilterExpression: "#status = :status AND attribute_exists(imageUrl)",
             ExpressionAttributeNames: {
-              "#prompt": "prompt",
               "#status": "status",
             },
             ExpressionAttributeValues: {
-              ":prompt": normalizedPrompt,
+              ":hash": promptHash,
               ":status": "COMPLETED",
             },
             Limit: 1,
-            ScanIndexForward: false, // Descending? No timestamp in sort key of GSI usually, but if added...
-            // GSI Sort Key: createdAt (if available) to get latest
           });
           
           const existing = await docClient.send(queryCmd);
           
           if (existing.Items && existing.Items.length > 0) {
              const cachedJob = existing.Items[0];
-             // Create a new record relying on cached data
+             // CACHE HIT: Return existing data immediately
+             // We return a structure that the frontend needs. 
+             // Note: The frontend likely expects just IDs or status.
+             // But if we want to be "smart", we assume the frontend might poll this ID.
+             // If we return the OLD ID, the frontend will poll an old COMPLETED job.
+             // If we create a NEW ID pointing to OLD data, we duplicate data but give a fresh handle.
+             // The requirement says: "return JSON with { success: true, jobId: id_encontrado ... }"
+             // But this map function returns just the ID to the outer array.
+             // We'll stick to returning the ID of the EXISTING job so the frontend polls it and gets instant "COMPLETED".
+             
+             // However, strictly complying with the "return ... immediately" part of the prompt
+             // might mean we need to adjust the response structure. 
+             // BUT this is inside a map(), so we return the ID to be sent locally.
+             
+             // Optimization: If we return the OLD ID, ensure the user has permission to view it?
+             // Since it's a semantic cache, it's public knowledge? 
+             // If userId differs, the other user might not see it if querying by userId.
+             // So we MUST create a new "Reference" Job or copy the data to a new Job ID for THIS user.
+             // Strategy: Duplicate the success record to a new Job ID for the current user.
+             
              const newJobItem = {
                 id: jobId,
                 userId: userId,
                 prompt: normalizedPrompt,
+                promptHash: promptHash, // Store hash for future consistency
                 status: "COMPLETED",
                 imageUrl: cachedJob.imageUrl,
                 errorMessage: "Served from cache",
@@ -79,18 +101,20 @@ export async function POST(request: Request) {
                 TableName: "ImageJobs",
                 Item: newJobItem,
              }));
+             
              return jobId;
           }
         } catch (err) {
-            console.error("Cache lookup failed (might be missing GSI), proceeding to create new job:", err);
-            // Fallback to creating new job if query fails
+            console.error("Cache lookup failed:", err);
+            // Proceed to generate
         }
 
-        // 2. Create PENDING Job
+        // 3. Cache MISS: Create PENDING Job
         const item = {
           id: jobId,
           userId: userId,
           prompt: normalizedPrompt,
+          promptHash: promptHash, // Make sure to save the hash!
           status: "PENDING",
           createdAt: new Date().toISOString(),
         };
@@ -102,7 +126,7 @@ export async function POST(request: Request) {
           })
         );
 
-        // 3. Send to SQS
+        // 4. Send to SQS
         const queueUrl = process.env.AWS_SQS_QUEUE_URL!;
         await sqsClient.send(
           new SendMessageCommand({
