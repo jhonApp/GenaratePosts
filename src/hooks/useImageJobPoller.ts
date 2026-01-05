@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 
-type JobStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+export type JobStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
 
-interface Job {
+export interface Job {
   id: string;
   status: JobStatus;
   imageUrl?: string;
@@ -10,23 +10,34 @@ interface Job {
 }
 
 export function useImageJobPoller(initialJobIds: string[]) {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [isPolling, setIsPolling] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [jobs, setJobs] = useState<Job[]>(() => 
+    initialJobIds.map((id) => ({ id, status: "PENDING" }))
+  );
+  const [isPolling, setIsPolling] = useState(() => initialJobIds.length > 0);
+  
+  // Track previous IDs to handle updates from props
+  const [prevInitialJobIds, setPrevInitialJobIds] = useState(initialJobIds);
+  const shouldPollRef = useRef(initialJobIds.length > 0);
 
-  // Initialize jobs state when IDs change
+  // Sync ref with state
   useEffect(() => {
-    if (initialJobIds.length > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setJobs(initialJobIds.map(id => ({ id, status: "PENDING" })));
-      setIsPolling(true);
-    }
-  }, [initialJobIds]);
+    shouldPollRef.current = isPolling;
+  }, [isPolling]);
+
+  // Adjust state during render if props change
+  if (initialJobIds !== prevInitialJobIds) {
+    setPrevInitialJobIds(initialJobIds);
+    setJobs(initialJobIds.map((id) => ({ id, status: "PENDING" })));
+    const shouldPoll = initialJobIds.length > 0;
+    setIsPolling(shouldPoll);
+  }
 
   useEffect(() => {
-    if (!isPolling || initialJobIds.length === 0) return;
+    if (initialJobIds.length === 0 || !isPolling) return;
 
-    const fetchStatuses = async () => {
+    let timeoutId: NodeJS.Timeout;
+
+    const fetchStatus = async () => {
       try {
         const res = await fetch("/api/queue/status", {
           method: "POST",
@@ -37,41 +48,39 @@ export function useImageJobPoller(initialJobIds: string[]) {
         if (res.ok) {
           const data = await res.json();
           const updatedJobs: Job[] = data.jobs;
-          
+
           setJobs(updatedJobs);
 
-          // Check if all are done
-          const allDone = updatedJobs.every(
+          // Check if all finished
+          const allFinished = updatedJobs.every(
             (job) => job.status === "COMPLETED" || job.status === "FAILED"
           );
 
-          if (allDone) {
+          if (allFinished) {
+            shouldPollRef.current = false;
             setIsPolling(false);
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-            }
+            return; // Stop polling
           }
         }
       } catch (error) {
         console.error("Polling error:", error);
       }
+
+      // Schedule next poll if still needed
+      if (shouldPollRef.current) {
+        timeoutId = setTimeout(fetchStatus, 2000); // 2 second interval
+      }
     };
 
-    // Initial fetch
-    fetchStatuses();
-
-    // Poll every 3 seconds
-    intervalRef.current = setInterval(fetchStatuses, 3000);
+    fetchStatus();
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      clearTimeout(timeoutId);
     };
-  }, [isPolling, initialJobIds]);
+  }, [initialJobIds, isPolling]);
 
   return {
     jobs,
     isPolling,
-    completedCount: jobs.filter((j) => j.status === "COMPLETED").length,
-    failedCount: jobs.filter((j) => j.status === "FAILED").length,
   };
 }
