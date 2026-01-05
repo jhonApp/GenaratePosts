@@ -12,7 +12,7 @@ import {
   generateCarouselPlanService,
 } from "../services/api";
 import { CarouselCard } from "../types";
-import { useImageJobPoller } from "@/hooks/useImageJobPoller";
+
 
 export const FeatureContainer: React.FC = () => {
   // States
@@ -32,13 +32,11 @@ export const FeatureContainer: React.FC = () => {
 
   // Queue System State
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
-  const { jobs, isPolling } = useImageJobPoller(activeJobIds);
   const [cardJobMapping, setCardJobMapping] = useState<Record<number, string>>({}); // Card Index -> Job ID
-
-
 
   const [stylingTips, setStylingTips] = useState<string | undefined>(undefined);
   const [isConsulting, setIsConsulting] = useState(false);
+  const isPolling = activeJobIds.length > 0;
 
   // Helper to ensure base64 string has correct prefix
   const formatImageSrc = (src: string | null | undefined) => {
@@ -47,54 +45,76 @@ export const FeatureContainer: React.FC = () => {
   };
 
   // Handlers
-  // Effect to sync Jobs Status to UI
+  // Polling Logic implementing 2s interval and stop condition
   React.useEffect(() => {
-    if (!isGeneratingImages && activeJobIds.length === 0) return;
+    // Preventive check: Only poll if we have active jobs
+    if (activeJobIds.length === 0) return;
 
-    // Check progress
-    const totalJobs = activeJobIds.length;
-    if (totalJobs === 0) return;
+    const fetchStatus = async () => {
+      try {
+        const response = await fetch("/api/queue/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobIds: activeJobIds }),
+        });
 
-    let pendingCount = 0;
-    let completedCount = 0;
+        if (!response.ok) return;
 
-    // Iterate over mapped jobs to update specific cards
-    Object.entries(cardJobMapping).forEach(([cardIndexStr, jobId]) => {
-      const cardIndex = parseInt(cardIndexStr);
-      const job = jobs.find((j) => j.id === jobId);
+        const data = await response.json();
+        const jobsStatus: { id: string, status: string, imageUrl?: string, errorMessage?: string }[] = data.jobs;
 
-      if (!job) return; // Not found yet (maybe initial render)
+        let pendingCount = 0;
+        let completedCount = 0;
 
-      if (job.status === "PENDING" || job.status === "PROCESSING") {
-        pendingCount++;
-        setLoadingImages((prev) => ({ ...prev, [cardIndex]: true }));
-        setImageErrors((prev) => ({ ...prev, [cardIndex]: false }));
-      } else if (job.status === "COMPLETED" && job.imageUrl) {
-        setLoadingImages((prev) => ({ ...prev, [cardIndex]: false }));
-        // Format the image source before setting state
-        const imgSrc = formatImageSrc(job.imageUrl);
-        setImages((prev) => ({ ...prev, [cardIndex]: imgSrc })); 
-        completedCount++;
-      } else if (job.status === "FAILED") {
-        setLoadingImages((prev) => ({ ...prev, [cardIndex]: false }));
-        setImageErrors((prev) => ({ ...prev, [cardIndex]: true }));
-        console.error(`Job ${jobId} failed: ${job.errorMessage}`);
+        // Update States based on job status
+        Object.entries(cardJobMapping).forEach(([cardIndexStr, jobId]) => {
+            const cardIndex = parseInt(cardIndexStr);
+            const job = jobsStatus.find(j => j.id === jobId);
+            
+            if (!job) return;
+
+            if (job.status === "COMPLETED" && job.imageUrl) {
+                const formattedSrc = formatImageSrc(job.imageUrl);
+                setImages(prev => ({ ...prev, [cardIndex]: formattedSrc }));
+                setLoadingImages(prev => ({ ...prev, [cardIndex]: false }));
+                setImageErrors(prev => ({ ...prev, [cardIndex]: false }));
+                completedCount++;
+            } else if (job.status === "FAILED") {
+                setLoadingImages(prev => ({ ...prev, [cardIndex]: false }));
+                setImageErrors(prev => ({ ...prev, [cardIndex]: true }));
+                console.error(`Job ${jobId} failed: ${job.errorMessage}`);
+            } else {
+                pendingCount++; 
+                // Ensure loading is set
+                setLoadingImages(prev => ({ ...prev, [cardIndex]: true }));
+            }
+        });
+
+        // Update Progress UI
+         if (pendingCount > 0) {
+            setImgProgress(`Gerando... (${completedCount}/${activeJobIds.length} prontos)`);
+        } else {
+            // Stop Condition: All jobs are either COMPLETED or FAILED
+            setImgProgress("✨ Visual gerado!");
+            setIsGeneratingImages(false);
+            setActiveJobIds([]); // Clear active IDs to stop the effect
+            console.log("Polling Interrompido: Todos os jobs finalizaram.");
+        }
+
+      } catch (error) {
+        console.error("Polling error:", error);
       }
-    });
+    };
 
-    if (pendingCount > 0) {
-      setImgProgress(`Gerando... (${completedCount}/${totalJobs} prontos)`);
-    } else if (totalJobs > 0 && pendingCount === 0) {
-       // All done
-       if (isGeneratingImages) {
-         setImgProgress("✨ Visual gerado!");
-         setIsGeneratingImages(false);
-         // Optional: Clear active jobs if we want to stop polling wholly, 
-         // but the hook stops polling automatically when all are done.
-       }
-    }
+    // Initial fetch
+    fetchStatus();
 
-  }, [jobs, activeJobIds, cardJobMapping, isGeneratingImages]);
+    // 3. Ajuste de Frequência: 2000ms (2 segundos)
+    const intervalId = setInterval(fetchStatus, 2000);
+
+    return () => clearInterval(intervalId);
+
+  }, [activeJobIds, cardJobMapping]);
 
 
   const handleGeneratePlan = async () => {
