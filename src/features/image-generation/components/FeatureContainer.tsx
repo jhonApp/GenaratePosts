@@ -262,16 +262,6 @@ export const FeatureContainer: React.FC = () => {
   // Render
   return (
     <div className="max-w-7xl mx-auto flex flex-col items-center">
-      {/* Header - now just title since Layout handles Nav */}
-      <div className="text-center mb-10 mt-6">
-        <h2 className="font-serif text-3xl md:text-4xl font-bold text-gray-900">
-          Tendências para o Ano Novo
-        </h2>
-        <p className="text-gray-500 mt-2 text-sm uppercase tracking-widest">
-          Coleção 2025
-        </p>
-      </div>
-
       {/* Main Content Grid */}
       <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
         
