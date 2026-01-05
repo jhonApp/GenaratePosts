@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 
-type JobStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+export type JobStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
 
-interface Job {
+export interface Job {
   id: string;
   status: JobStatus;
   imageUrl?: string;
@@ -12,21 +12,28 @@ interface Job {
 export function useImageJobPoller(initialJobIds: string[]) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isPolling, setIsPolling] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Use a ref to track if we should continue polling
+  const shouldPollRef = useRef(false);
 
-  // Initialize jobs state when IDs change
+  // Initialize state when initialJobIds change
   useEffect(() => {
     if (initialJobIds.length > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setJobs(initialJobIds.map(id => ({ id, status: "PENDING" })));
+      setJobs(initialJobIds.map((id) => ({ id, status: "PENDING" })));
       setIsPolling(true);
+      shouldPollRef.current = true;
+    } else {
+        setIsPolling(false);
+        shouldPollRef.current = false;
     }
   }, [initialJobIds]);
 
   useEffect(() => {
-    if (!isPolling || initialJobIds.length === 0) return;
+    if (!shouldPollRef.current || initialJobIds.length === 0) return;
 
-    const fetchStatuses = async () => {
+    let timeoutId: NodeJS.Timeout;
+
+    const fetchStatus = async () => {
       try {
         const res = await fetch("/api/queue/status", {
           method: "POST",
@@ -37,41 +44,42 @@ export function useImageJobPoller(initialJobIds: string[]) {
         if (res.ok) {
           const data = await res.json();
           const updatedJobs: Job[] = data.jobs;
-          
-          setJobs(updatedJobs);
 
-          // Check if all are done
-          const allDone = updatedJobs.every(
+          setJobs((prevJobs) => {
+            // Merge previous state (to keep order if needed, though mostly replacing)
+             return updatedJobs; 
+          });
+
+          // Check if all finished
+          const allFinished = updatedJobs.every(
             (job) => job.status === "COMPLETED" || job.status === "FAILED"
           );
 
-          if (allDone) {
+          if (allFinished) {
+            shouldPollRef.current = false;
             setIsPolling(false);
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-            }
+            return; // Stop polling
           }
         }
       } catch (error) {
         console.error("Polling error:", error);
       }
+
+      // Schedule next poll if still needed
+      if (shouldPollRef.current) {
+        timeoutId = setTimeout(fetchStatus, 2000); // 2 second interval
+      }
     };
 
-    // Initial fetch
-    fetchStatuses();
-
-    // Poll every 3 seconds
-    intervalRef.current = setInterval(fetchStatuses, 3000);
+    fetchStatus();
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      clearTimeout(timeoutId);
     };
-  }, [isPolling, initialJobIds]);
+  }, [initialJobIds]);
 
   return {
     jobs,
     isPolling,
-    completedCount: jobs.filter((j) => j.status === "COMPLETED").length,
-    failedCount: jobs.filter((j) => j.status === "FAILED").length,
   };
 }

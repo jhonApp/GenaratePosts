@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { docClient } from "@/lib/dynamodb";
 import { BatchGetCommand } from "@aws-sdk/lib-dynamodb";
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   try {
     const { userId } = await auth();
@@ -12,55 +14,39 @@ export async function POST(request: Request) {
 
     const { jobIds } = await request.json();
 
-    if (!jobIds || !Array.isArray(jobIds)) {
-      return NextResponse.json(
-        { error: "jobIds array is required" },
-        { status: 400 }
-      );
+    if (!jobIds || !Array.isArray(jobIds) || jobIds.length === 0) {
+      return NextResponse.json({ jobs: [] });
     }
 
-    if (jobIds.length === 0) {
-        return NextResponse.json({ jobs: [] });
-    }
-
-    // DynamoDB BatchGetItem limit is 100 items by default, 
-    // but simplified here assuming reasonable batch sizes from frontend polling.
-    // Ideally we should chunk if > 100 or use existing library utility.
-    // For now, assuming batch size < 100.
-
+    // DynamoDB BatchGetCommand (Limit 100 items per batch)
     const command = new BatchGetCommand({
       RequestItems: {
         ImageJobs: {
           Keys: jobIds.map((id) => ({ id })),
-          ProjectionExpression: "id, #status, imageUrl, errorMessage, userId",
-          ExpressionAttributeNames: {
-            "#status": "status",
-          },
+          ProjectionExpression: "id, #s, imageUrl, errorMessage, userId",
+          ExpressionAttributeNames: { "#s": "status" },
         },
       },
     });
 
     const response = await docClient.send(command);
-    const foundItems = response.Responses?.["ImageJobs"] || [];
+    const items = response.Responses?.["ImageJobs"] || [];
 
-    // Filter by userId for security and map to response format
-    const jobs = foundItems
+    // Security: Only return jobs that belong to the current user
+    const jobs = items
       .filter((item) => item.userId === userId)
       .map((item) => ({
         id: item.id,
         status: item.status,
-        imageUrl: item.imageUrl,
-        errorMessage: item.errorMessage,
+        imageUrl: item.imageUrl || null,
+        errorMessage: item.errorMessage || null,
       }));
 
-    // Identify missing jobs if necessary, or just return what we found.
-    // The previous implementation returned what was found.
-
     return NextResponse.json({ jobs });
-  } catch (error: unknown) {
-    console.error("Fetch Job Status Error:", error);
+  } catch (error) {
+    console.error("Status API Error:", error);
     return NextResponse.json(
-      { error: "Failed to fetch job statuses" },
+      { error: "Failed to fetch job status" },
       { status: 500 }
     );
   }

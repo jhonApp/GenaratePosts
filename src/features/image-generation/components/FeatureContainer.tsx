@@ -43,8 +43,7 @@ export const FeatureContainer: React.FC = () => {
   // Helper to ensure base64 string has correct prefix
   const formatImageSrc = (src: string | null | undefined) => {
     if (!src) return '/placeholder.png';
-    const cleanSrc = src.trim();
-    return cleanSrc.startsWith('data:') ? cleanSrc : `data:image/png;base64,${cleanSrc}`;
+    return src.trim();
   };
 
   // Handlers
