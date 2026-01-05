@@ -10,26 +10,30 @@ export interface Job {
 }
 
 export function useImageJobPoller(initialJobIds: string[]) {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [isPolling, setIsPolling] = useState(false);
+  const [jobs, setJobs] = useState<Job[]>(() => 
+    initialJobIds.map((id) => ({ id, status: "PENDING" }))
+  );
+  const [isPolling, setIsPolling] = useState(() => initialJobIds.length > 0);
   
-  // Use a ref to track if we should continue polling
-  const shouldPollRef = useRef(false);
+  // Track previous IDs to handle updates from props
+  const [prevInitialJobIds, setPrevInitialJobIds] = useState(initialJobIds);
+  const shouldPollRef = useRef(initialJobIds.length > 0);
 
-  // Initialize state when initialJobIds change
+  // Sync ref with state
   useEffect(() => {
-    if (initialJobIds.length > 0) {
-      setJobs(initialJobIds.map((id) => ({ id, status: "PENDING" })));
-      setIsPolling(true);
-      shouldPollRef.current = true;
-    } else {
-        setIsPolling(false);
-        shouldPollRef.current = false;
-    }
-  }, [initialJobIds]);
+    shouldPollRef.current = isPolling;
+  }, [isPolling]);
+
+  // Adjust state during render if props change
+  if (initialJobIds !== prevInitialJobIds) {
+    setPrevInitialJobIds(initialJobIds);
+    setJobs(initialJobIds.map((id) => ({ id, status: "PENDING" })));
+    const shouldPoll = initialJobIds.length > 0;
+    setIsPolling(shouldPoll);
+  }
 
   useEffect(() => {
-    if (!shouldPollRef.current || initialJobIds.length === 0) return;
+    if (initialJobIds.length === 0 || !isPolling) return;
 
     let timeoutId: NodeJS.Timeout;
 
@@ -45,10 +49,7 @@ export function useImageJobPoller(initialJobIds: string[]) {
           const data = await res.json();
           const updatedJobs: Job[] = data.jobs;
 
-          setJobs((prevJobs) => {
-            // Merge previous state (to keep order if needed, though mostly replacing)
-             return updatedJobs; 
-          });
+          setJobs(updatedJobs);
 
           // Check if all finished
           const allFinished = updatedJobs.every(
@@ -76,7 +77,7 @@ export function useImageJobPoller(initialJobIds: string[]) {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [initialJobIds]);
+  }, [initialJobIds, isPolling]);
 
   return {
     jobs,
